@@ -1,0 +1,77 @@
+- hosts: localhost
+  gather_facts: false
+  vars:
+    transfer_pod_image: quay.io/jmontleon/foo:test
+    namespace: test
+    ssh_public_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAEAQCpYLLRcE/ZaTzoUwMfVuc5hwNEL4KO4qKGP3K4JHNU3Ud28YvM7TY0HiU6AeuSx6QkTB3NxFS8q4BAvpZkYinUrWRn7m7pgfQ7WSXztUgn1JlgK2GMdGmursBSS1lOWiffrTKpIs7iFGiYkQH83EdrJVzfCubYJQPcoJ/gyzTaEzDLO3preziZsTa+LxCExbIUPsvDf8vHPn8IKlkP7DnV70ww9ZyXC61pY372dkNOorpCoz4Jt8djOAB4OU02QqcZLKMNARccpVcreOPLgEMtuo58WO8lL7SqgktYqBzs6jgWGQvtFyc5MIZfNL13Y2FgABoXFQ0Qw+brjIMtOvTIJ5gE9jme4xpTISJU+SD567ooD44/xTL0M182vQB7l4jbNnL87k80FwNCXTi/i10MBBSkxaICLnNM4+8VwhGmRvCixMvc1bb9V0qLECaktlRI4eWRtKSt8Qh7+RWjpik8fRlLDj//HesXcQ0mBRSbUBbH9SkvMLQbmNmyBInsAJJvSn9DKQXkV+MWdyTDrmUguadSvRuDWfwJceUW9u3Zy7FO9E0ddITtzuRu/vh8+QvMF86kKpDmXhH7RcHTLv5pkL+7WF6spT4AQYMgcpDB6X5+GB7RBcazEQIFQWnFwu0/a5Jtoocdq7rn+orB3xDBYmJLWGRHgQB/eli2wB0Wu7+etHSCuVXt7/OHIR7FPy0jdolUIah74FmRbz8bxRXz7Be2l5TJ0SaJkM+ZH88r446svdGEVt2I9hWj0HlaM4pmuexRFX8uL5ixPPUqi/Y4ZXbsn4G3vVetH64v4rluk3Nd6AB4jvm35wMeZOaGidkPHsrbn8PeDTWIOd0eMxkRFUuNPDvJeoTyL/BzeOvFG8Wh6KQZsuszubDHUfrwUuqpNYsp7FIlW6Diao5wVkcqz0VASDLz0Jks3MAoQvj5I+ByHIZLsp+lUc8vPGGUEZrgKYafEVyszEX9SLdzaV76RadE61FhH3PLLodIomFAvNcQ6KyyF/Ow3KnIg76P8u2K2wqvL2/niu33CIFW4Vx5iQxmJ99RzSZQTfEoCfzl2IBHucEnh/UXS8oIytXUPq/B6eqTurYKbZTt2TIQOQ4vFk/aOvJ+R5+XyT9FkO8KbWKDdLTPP/1ewTbRTyr4E//vIXvCgk+oo1MclsrwftHFyrxFKS/aASV+3AktM7hRy8FuwWuaenA0t7iUox5N4KKoyXt3+03siRIt9kWg+QqBXUHouRuK5kZOSNH+WpQq7PCv49hcxNxuJ4e9KeOciz8z5JzuFTu6viscjfTaFhYLlWZvmlBZ3waXWMn9kzgykllbLGY784zggZliaD0qbdtvQSntGqv60qP1brdI17+B jmontleo@jmontleo.usersys.redhat.com" 
+  tasks:
+  - name: Generate certs
+    shell: ./stunnel.sh
+
+  - name: Get crt
+    slurp:
+      src: ./tls.crt
+    register: crt
+
+  - name: Get key
+    slurp:
+      src: ./tls.key
+    register: key
+
+  - name: Create pod
+    k8s:
+      state: present
+      definition: "{{ lookup('template', 'pod.yml.j2') }}"
+
+  - name: get route
+    k8s_info:
+      api_version: v1
+      kind: Route
+      name: ssh
+      namespace: "{{ namespace }}"
+    register: route
+
+  - name: write stunnel.conf
+    copy:
+      content: |
+                foreground = no
+                pid =
+                sslVersion = TLSv1.2
+                client = yes
+                syslog = no
+
+                [ssh]
+                accept = 2222
+                CAFile = /etc/stunnel/tls.crt
+                cert = /etc/stunnel/tls.crt
+                connect = {{ route.resources[0].spec.host }}:443
+                verify = 2
+                key = /etc/stunnel/tls.key
+      dest: /etc/stunnel/stunnel.conf
+    become: true
+
+  - name: write tls.crt
+    copy:
+      content: "{{ crt['content']|b64decode }}"
+      dest: /etc/stunnel/tls.crt
+    become: true
+
+  - name: write tls.key
+    copy:
+      content: "{{ key['content']|b64decode }}"
+      dest: /etc/stunnel/tls.key
+      mode: 0600      
+    become: true
+
+  - name: start stunnel
+    systemd:
+      state: started
+      name: stunnel
+    become: true
+# rsync 
+#
+# - name: start stunnel
+#    systemd:
+#      state: stopped
+#      name: stunnel
+

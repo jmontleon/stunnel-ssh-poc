@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ssh-rsync
+  namespace: {{ namespace }} 
+  labels:
+    app: ssh
+spec:
+  containers:
+  - name: ssh
+    imagePullPolicy: Always
+    image: {{ transfer_pod_image }}
+    ports:
+    - containerPort: 22
+      name: ssh
+      protocol: TCP
+    securityContext:
+      privileged: true
+      runAsUser: 0
+    env:
+    - name: SSH_PUBLIC_KEY
+      value: "{{ ssh_public_key }}"
+    command:
+    - bash
+    - -c
+    - "mkdir /root/.ssh && echo ${SSH_PUBLIC_KEY} > ${HOME}/.ssh/authorized_keys && chmod 600 ${HOME}/.ssh/authorized_keys && /usr/bin/ssh-keygen -A && exec /sbin/sshd -D"
+  - name: stunnel
+    imagePullPolicy: Always
+    image: {{ transfer_pod_image }}
+    ports:
+    - containerPort: 2222
+      name: stunnel
+      protocol: TCP
+    securityContext:
+      privileged: true
+      runAsUser: 0
+    env:
+    - name: crt
+      value: "{{ crt['content'] }}"
+    - name: key
+      value: "{{ key['content'] }}"
+    command:
+    - bash
+    - -c
+    - "echo $crt|base64 -d > /etc/stunnel/tls.crt && echo $key|base64 -d > /etc/stunnel/tls.key && exec /bin/stunnel /etc/stunnel/stunnel.conf"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ssh
+  namespace: {{ namespace }}
+  labels:
+    app: ssh
+    service: ssh
+spec:
+  ports:
+    - name: web
+      port: 2222
+      targetPort: 2222
+  selector:
+    app: ssh
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ssh
+  namespace: {{ namespace }}
+  labels:
+    app: ssh
+spec:
+  to:
+    kind: Service
+    name: ssh
+  port:
+    targetPort: 2222
+  tls:
+    termination: passthrough

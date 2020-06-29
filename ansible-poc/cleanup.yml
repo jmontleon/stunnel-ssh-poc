@@ -1,0 +1,6 @@
+- hosts: localhost
+  gather_facts: false
+  vars:
+    namespace: test
+  tasks:
+  - shell: oc delete po -n {{ namespace }} ssh-rsync --wait=false
