@@ -31,6 +31,12 @@
       namespace: "{{ namespace }}"
     register: route
 
+  - name: install stunnel
+    yum:
+      name: stunnel
+      state: latest
+    become: true
+
   - name: write stunnel.conf
     copy:
       content: |
